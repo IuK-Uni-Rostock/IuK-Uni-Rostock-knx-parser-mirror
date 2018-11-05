@@ -64,16 +64,14 @@ class APCI(BitmaskEnum):
 
 class TPCI(BitmaskEnum):
     UNNUMBERED_DATA_PACKET       = 0b00
-    UNNUMBERED_CONTROL_PACKET    = 0b10
     NUMBERED_DATA_PACKET         = 0b01
-    NUMBERED_CONTROL_PACKET      = 0b11
+    UNNUMBERED_CONTROL_DATA      = 0b10
+    NUMBERED_CONTROL_DATA        = 0b11
 
 
-class TelegramType(BitmaskEnum):
-    POLL  = 0b11
-    ACK   = 0b01
-    DATA  = 0b10
-    EXT   = 0b00
+class FrameType(BitmaskEnum):
+    EXTENDED_FRAME  = 0b0
+    STANDARD_FRAME  = 0b1
 
 
 class TelegramPriority(BitmaskEnum):

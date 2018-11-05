@@ -2,7 +2,7 @@
 from datetime import datetime
 
 from . import struct  # precompiled bitstructs
-from .const import TelegramType, TelegramPriority, APCI, TPCI, TelegramAcknowledgement
+from .const import FrameType, TelegramPriority, APCI, TPCI, TelegramAcknowledgement
 
 
 class KnxAddress(object):
@@ -64,34 +64,28 @@ class KnxAddress(object):
 
 class KnxBaseTelegram(object):
 
-    def __init__(self, telegram_type=TelegramType.DATA, repeat=False, ack=False, priority=TelegramPriority.NORMAL, confirm=True, src=None, dest=None, hop_count=0, timestamp=None):
+    def __init__(self, frame_type=FrameType.STANDARD_FRAME, repeat=False, ack_req=False, system_broadcast=True, priority=TelegramPriority.NORMAL, confirm=True, src=None, dest=None, hop_count=0, timestamp=None):
         self.timestamp = timestamp if timestamp else datetime.now()
-        self.telegram_type = TelegramType(telegram_type)
+        self.frame_type = FrameType(frame_type)
         self.repeat = repeat
-        self.ack = ack
+        self.ack_req = ack_req
         self.priority = TelegramPriority(priority)
         self.confirm = confirm
+        self.system_broadcast = system_broadcast
         self.src = src
         self.dest = dest
         self.hop_count = hop_count
 
     def __repr__(self):
-        return """KnxExtendedTelegram(src='{src}', dest='{dest}', telegram_type={tt},
-    repeat={repeat}, ack={ack}, priority={prio}, hop_count={hop_count}, timestamp={timestamp})""".format(tt=repr(self.telegram_type), prio=repr(self.priority), **self.__dict__)
-
-    @property
-    def tpdu(self):
-        if self.payload:
-            return self.payload[0]
-        else:
-            return None
+        return """KnxExtendedTelegram(src='{src}', dest='{dest}', frame_type={tt},
+    repeat={repeat}, ack_req={ack_req}, priority={prio}, hop_count={hop_count}, timestamp={timestamp})""".format(tt=repr(self.frame_type), prio=repr(self.priority), **self.__dict__)
 
     @property
     def apci(self):
         if not self.payload:
             return None
 
-        apci_num, = struct.KNX_APCI.unpack(self.payload[0:3])
+        apci_num, = struct.KNX_APCI.unpack(self.payload[0:2])
         return APCI(apci_num)
 
     @property
@@ -99,23 +93,8 @@ class KnxBaseTelegram(object):
         if not self.payload:
             return None
 
-        tpci_num, = struct.KNX_TPCI.unpack(self.payload[0:2])
-        return TPCI(tpci_num)
-
-    @property
-    def packet_number(self):
-        if not self.payload:
-            return None
-
-        count, = struct.KNX_PACKET_NUMBER.unpack(self.payload[0:2])
-        return count
-
-    @property
-    def packet_count(self):
-        import warnings
-        warnings.warn("packet_count is deprecated, used packet_number", DeprecationWarning)
-
-        return self.packet_number
+        tpci_num, seq_number = struct.KNX_TPCI.unpack(self.payload[0:1])
+        return TPCI(tpci_num), seq_number
 
     def to_binary(self):
         raise NotImplemented()
@@ -135,22 +114,21 @@ class KnxStandardTelegram(KnxBaseTelegram):
 
     def __repr__(self):
         p = self.payload.hex()
-        return """KnxStandardTelegram(src='{src}', dest='{dest}', telegram_type={tt},
-    repeat={repeat}, ack={ack}, priority={prio}, hop_count={hop_count}, timestamp='{timestamp}',
-    payload_length={payload_length}, payload=payload=bytes.fromhex('{p}')), payload_data={payload_data}"""\
-            .format(tt=repr(self.telegram_type), prio=repr(self.priority), p=p, **self.__dict__)
+        return """KnxStandardTelegram(src='{src}', dest='{dest}', frame_type={tt},
+    repeat={repeat}, ack_req={ack_req}, priority={prio}, hop_count={hop_count}, timestamp='{timestamp}',
+    payload_length={payload_length}, payload=bytes.fromhex('{p}')), payload_data={payload_data}"""\
+            .format(tt=repr(self.frame_type), prio=repr(self.priority), p=p, **self.__dict__)
 
     def to_binary(self):
         binary = b''.join((
-            struct.CEMI_MSG_CODE.pack(0x29),  # cEMI header
+            struct.CEMI_MSG_CODE.pack(0x11),  # cEMI header
             struct.CEMI_ADD_LEN.pack(0),  # no additional cEMI/BAOS info here, since they are not stored in the KNX Datamodel
-            struct.KNX_CTRL.pack(int(self.telegram_type), not self.repeat, 3, int(self.priority), not self.ack, not self.confirm),
+            struct.KNX_CTRL.pack(int(self.frame_type), 0, self.repeat, self.system_broadcast, int(self.priority), self.ack_req, self.confirm),
             struct.KNX_CTRLE.pack(self.dest.group, self.hop_count, 0),
             self.src.to_binary(),
             self.dest.to_binary(),
             struct.KNX_LENGTH.pack(self.payload_length),
-            self.payload,
-            self.payload_data,
+            self.payload
         ))
 
         return binary
@@ -171,15 +149,15 @@ class KnxExtendedTelegram(KnxBaseTelegram):
     def __repr__(self):
         eff = hex(self.eff)
         p = self.payload.hex()
-        return """KnxExtendedTelegram(src='{src}', dest='{dest}', telegram_type={tt},
+        return """KnxExtendedTelegram(src='{src}', dest='{dest}', frame_type={tt},
     repeat={repeat}, ack={ack}, priority={prio}, hop_count={hop_count}, timestamp='{timestamp}',
-    eff=bytes.fromhex('{eff_hex}'), payload_length={payload_length}, payload=bytes.fromhex('{p}'))""".format(tt=repr(self.telegram_type), prio=repr(self.priority), p=p, eff_hex=eff, **self.__dict__)
+    eff=bytes.fromhex('{eff_hex}'), payload_length={payload_length}, payload=bytes.fromhex('{p}'))""".format(tt=repr(self.frame_type), prio=repr(self.priority), p=p, eff_hex=eff, **self.__dict__)
 
     def to_binary(self):
         binary = b''.join((
-            struct.CEMI_MSG_CODE.pack(0x29),  # cEMI header
+            struct.CEMI_MSG_CODE.pack(0x11),  # cEMI header
             struct.CEMI_ADD_LEN.pack(0),  # no additional cEMI/BAOS info here, since they are not stored in the KNX Datamodel
-            struct.KNX_CTRL.pack(int(self.telegram_type), not self.repeat, 3, int(self.priority), not self.ack, not self.confirm),
+            struct.KNX_CTRL.pack(int(self.frame_type), 0, self.repeat, self.system_broadcast, int(self.priority), self.ack_req, self.confirm),
             struct.KNX_CTRLE.pack(self.dest.group, self.hop_count, self.eff),
             self.src.to_binary(),
             self.dest.to_binary(),

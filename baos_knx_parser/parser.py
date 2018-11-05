@@ -1,6 +1,5 @@
-
 from . import struct
-from .const import TelegramType, APCI
+from .const import FrameType, APCI
 from .knx import KnxAddress, KnxExtendedTelegram, KnxStandardTelegram, KnxAcknowledgementTelegram
 
 def parse_knx_telegram(binary, timestamp=None):
@@ -25,22 +24,19 @@ def parse_busmon_ind(binary, timestamp=None):
         return KnxAcknowledgementTelegram(acknowledgement=acknowledgement)
 
     # parse CTRL
-    frame_type_flag, repeated_flag, system_broadcast_flag, priority, acknowledge_request_flag, confirm_flag = struct.KNX_CTRL.unpack(knx_binary[0:1])
-    acknowledge_request_flag = not acknowledge_request_flag # acknowledge_request_flag flag is send inverted
-    confirm_flag = not confirm_flag  # if `not confirm_flag` => error
-    repeated_flag = not repeated_flag  # same with repeated_flag flag
+    frame_type_flag, _, repeat_flag, system_broadcast_flag, priority, acknowledge_request_flag, confirm_flag = struct.KNX_CTRL.unpack(knx_binary[0:1])
 
     # parse NPCI
     destination_address_type, hop_count, payload_length = struct.KNX_NPCI.unpack(knx_binary[5:6])
 
     # create data model class
-    if frame_type_flag == TelegramType.EXT:
-        telegram = KnxExtendedTelegram(timestamp=timestamp, telegram_type=frame_type_flag, repeat=repeated_flag, ack=acknowledge_request_flag,
-                                       priority=priority, confirm=confirm_flag, hop_count=hop_count)
+    if frame_type_flag == FrameType.EXTENDED_FRAME:
+        telegram = KnxExtendedTelegram(timestamp=timestamp, frame_type=frame_type_flag, repeat=repeat_flag, ack_req=acknowledge_request_flag,
+                                       priority=priority, confirm=confirm_flag, hop_count=hop_count, system_broadcast=system_broadcast_flag)
     else:
-        telegram = KnxStandardTelegram(timestamp=timestamp, telegram_type=frame_type_flag, repeat=repeated_flag, ack=acknowledge_request_flag,
-                                       priority=priority, confirm=confirm_flag, hop_count=hop_count)
-    
+        telegram = KnxStandardTelegram(timestamp=timestamp, frame_type=frame_type_flag, repeat=repeat_flag, ack_req=acknowledge_request_flag,
+                                       priority=priority, confirm=confirm_flag, hop_count=hop_count, system_broadcast=system_broadcast_flag)
+
     # parse addresses
     telegram.src = parse_knx_addr(knx_binary[1:3])
     telegram.dest = parse_knx_addr(knx_binary[3:5], group=destination_address_type)
@@ -58,21 +54,18 @@ def parse_data_ind(binary, timestamp=None):
     knx_binary = binary[add_len + 2:]
 
     # parse CTRL
-    frame_type_flag, repeated_flag, system_broadcast_flag, priority, acknowledge_request_flag, confirm_flag = struct.KNX_CTRL.unpack(knx_binary[0:1])
-    acknowledge_request_flag = not acknowledge_request_flag  # acknowledge_request_flag flag is send inverted
-    confirm_flag = not confirm_flag  # if `not confirm_flag` => error
-    repeated_flag = not repeated_flag  # same with repeated_flag flag
+    frame_type_flag, _, repeat_flag, system_broadcast_flag, priority, acknowledge_request_flag, confirm_flag = struct.KNX_CTRL.unpack(knx_binary[0:1])
 
     # parse CTRLE (it is send anyway in BAOS)
     destination_address_type, hop_count, extended_frame_format = struct.KNX_CTRLE.unpack(knx_binary[1:2])
 
     # create data model class
-    if frame_type_flag == TelegramType.EXT:
-        telegram = KnxExtendedTelegram(timestamp=timestamp, telegram_type=frame_type_flag, repeat=repeated_flag, ack=acknowledge_request_flag,
-                                       priority=priority, confirm=confirm_flag, hop_count=hop_count, eff=extended_frame_format)
+    if frame_type_flag == FrameType.EXTENDED_FRAME:
+        telegram = KnxExtendedTelegram(timestamp=timestamp, frame_type=frame_type_flag, repeat=repeat_flag, ack_req=acknowledge_request_flag,
+                                       priority=priority, confirm=confirm_flag, hop_count=hop_count, system_broadcast=system_broadcast_flag, eff=extended_frame_format)
     else:
-        telegram = KnxStandardTelegram(timestamp=timestamp, telegram_type=frame_type_flag, repeat=repeated_flag, ack=acknowledge_request_flag,
-                                       priority=priority, confirm=confirm_flag, hop_count=hop_count)
+        telegram = KnxStandardTelegram(timestamp=timestamp, frame_type=frame_type_flag, repeat=repeat_flag, ack_req=acknowledge_request_flag,
+                                       priority=priority, confirm=confirm_flag, hop_count=hop_count, system_broadcast=system_broadcast_flag)
 
     # parse addresses
     telegram.src = parse_knx_addr(knx_binary[2:4])
@@ -82,7 +75,7 @@ def parse_data_ind(binary, timestamp=None):
     telegram.payload_length, = struct.KNX_LENGTH.unpack(knx_binary[6:7])
     telegram.payload = knx_binary[7:9 + telegram.payload_length]
     apci = telegram.apci
-    telegram.payload_data = parse_payload_data(apci,knx_binary[7:9 + telegram.payload_length], telegram.payload_length)
+    telegram.payload_data = parse_payload_data(apci, knx_binary[7:9 + telegram.payload_length], telegram.payload_length)
     return telegram
 
 
@@ -218,5 +211,5 @@ def parse_payload_data(apci, payload_bytes, payload_length):
     elif apci == APCI.A_KEY_RESPONSE:
         payload_data = int(payload_bytes[2:3].hex(), 16)
     else:
-        raise Exception('Parsing of Payload for {0} not yet implemented!'.format(telegram.apci))
+        raise Exception('Parsing of Payload for {0} not yet implemented!'.format(apci))
     return payload_data
